@@ -1,0 +1,58 @@
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import f1_score
+import matplotlib.pyplot as plt
+
+# Define functions for Single Gaussian and GMM classifiers
+def single_gaussian(train_data, train_labels, test_data):
+    # Compute mean and standard deviation of each feature for each class
+    means = [np.mean(train_data[train_labels == label], axis=0) for label in np.unique(train_labels)]
+    stds = [np.std(train_data[train_labels == label], axis=0) for label in np.unique(train_labels)]
+    
+    # Compute class probabilities
+    class_probs = [np.mean(train_labels == label) for label in np.unique(train_labels)]
+    
+    # Compute probabilities of test samples belonging to each class
+    probs = np.zeros((test_data.shape[0], len(np.unique(train_labels))))
+    for i, label in enumerate(np.unique(train_labels)):
+        probs[:,i] = np.prod(np.exp(-(test_data - means[i])**2 / (2*stds[i]**2)) / (np.sqrt(2*np.pi)*stds[i]), axis=1) * class_probs[i]
+    
+    # Assign test samples to class with highest probability
+    y_pred = np.argmax(probs, axis=1)
+    
+    return y_pred
+
+def gmm(train_data, train_labels, test_data, n_components):
+    # Initialize means, covariances, and class probabilities using K-Means clustering
+    from sklearn.cluster import KMeans
+    kmeans = KMeans(n_clusters=n_components, random_state=42)
+    kmeans.fit(train_data)
+    means = kmeans.cluster_centers_
+    covs = [np.cov(train_data[kmeans.labels_ == i].T) for i in range(n_components)]
+    class_probs = [np.mean(train_labels[kmeans.labels_ == i]) for i in range(n_components)]
+    
+    # Expectation-Maximization algorithm to update means, covariances, and class probabilities
+    for i in range(10):
+        # Expectation step
+        probs = np.zeros((train_data.shape[0], n_components))
+        for j in range(n_components):
+            probs[:,j] = class_probs[j] * multivariate_normal_pdf(train_data, means[j], covs[j])
+        probs /= np.sum(probs, axis=1, keepdims=True)
+        
+        # Maximization step
+        for j in range(n_components):
+            means[j] = np.sum(probs[:,j].reshape(-1,1) * train_data, axis=0) / np.sum(probs[:,j])
+            covs[j] = np.dot((train_data - means[j]).T, (probs[:,j].reshape(-1,1) * (train_data - means[j]))) / np.sum(probs[:,j])
+            class_probs[j] = np.mean(probs[:,j])
+    
+    # Compute probabilities of test samples belonging to each class
+    probs = np.zeros((test_data.shape[0], n_components))
+    for i in range(n_components):
+        probs[:,i] = class_probs[i] * multivariate_normal_pdf(test_data, means[i], covs[i])
+    
+    # Assign test samples to class with highest probability
+    y_pred = np.argmax(probs, axis=1)
+    
+    return y_pred
+
